@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Live Crypto Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/luxon"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon"></script>
+    <style>
+      select option {
+        background-color: #1f2937;
+        color: white;
+      }
+      .coin-icon {
+        width: 20px;
+        height: 20px;
+      }
+      .transition-all {
+        transition: all 0.3s ease-in-out;
+      }
+      .fade-in {
+        animation: fadeIn 1s ease-in-out;
+      }
+      @keyframes fadeIn {
+        0% {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        100% {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+    </style>
+  </head>
+  <body class="bg-gray-900 text-white font-sans transition-all" id="body">
+    <div class="container mx-auto p-6">
+      <div class="flex justify-between items-center mb-6">
+        <h1 class="text-3xl font-bold">🌐 Live Crypto Dashboard</h1>
+        <button
+          onclick="toggleDarkMode()"
+          class="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded transition"
+        >
+          🌓 Toggle Theme
+        </button>
+      </div>
+
+      <!-- Crypto Converter -->
+      <div class="bg-gray-800 p-4 rounded-xl shadow mb-8">
+        <h2 class="text-2xl font-semibold mb-4">🔁 Crypto Converter</h2>
+        <div class="flex flex-col md:flex-row gap-4 items-center">
+          <input
+            id="amount"
+            type="number"
+            placeholder="Amount"
+            class="w-full md:w-1/4 p-2 rounded bg-gray-700 text-white"
+          />
+          <select
+            id="from-coin"
+            class="w-full md:w-1/4 p-2 rounded bg-gray-700 text-white"
+          ></select>
+          <select
+            id="to-coin"
+            class="w-full md:w-1/4 p-2 rounded bg-gray-700 text-white"
+          ></select>
+          <button
+            onclick="convertCurrency()"
+            class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded"
+          >
+            Convert
+          </button>
+        </div>
+        <p id="conversion-result" class="mt-4 text-lg"></p>
+      </div>
+
+      <!-- Search Bar -->
+      <div class="mb-4">
+        <input
+          id="searchInput"
+          oninput="filterCoins()"
+          type="text"
+          placeholder="Search Coin..."
+          class="w-full p-3 rounded bg-gray-800 text-white placeholder-gray-400"
+        />
+      </div>
+
+      <!-- Top Gainers / Losers Toggle -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
+        <div class="bg-green-800 p-4 rounded-xl cursor-pointer">
+          <h2 class="text-xl font-semibold mb-2">🚀 Top Gainers</h2>
+          <ul id="gainers" class="space-y-1"></ul>
+        </div>
+        <div class="bg-red-800 p-4 rounded-xl cursor-pointer">
+          <h2 class="text-xl font-semibold mb-2">📉 Top Losers</h2>
+          <ul id="losers" class="space-y-1"></ul>
+        </div>
+      </div>
+
+      <!-- Live Crypto Cards -->
+      <div
+        id="crypto-container"
+        class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6"
+      ></div>
+
+      <!-- News Feed -->
+      <div class="mt-10">
+        <h2 class="text-2xl font-semibold mb-4">📰 Latest Crypto News</h2>
+        <ul id="news-feed" class="space-y-3 text-blue-300"></ul>
+      </div>
+    </div>
+
+    <!-- Modal -->
+    <div
+      id="modal"
+      class="fixed inset-0 bg-black bg-opacity-70 hidden items-center justify-center z-50"
+    >
+      <div class="bg-gray-900 p-6 rounded-lg w-11/12 max-w-4xl relative">
+        <button
+          onclick="closeModal()"
+          class="absolute top-2 right-4 text-purple-500 text-2xl"
+        >
+          &times;
+        </button>
+        <h2 id="modal-title" class="text-xl font-bold mb-4"></h2>
+        <canvas id="modal-chart" height="300"></canvas>
+      </div>
+    </div>
+
+    <script>
+      const cryptoContainer = document.getElementById("crypto-container");
+      const converterCoins = [
+        "bitcoin",
+        "ethereum",
+        "tether",
+        "binancecoin",
+        "solana",
+        "ripple",
+        "usd-coin",
+        "cardano",
+        "dogecoin",
+        "avalanche-2",
+        "tron",
+        "polkadot",
+        "polygon",
+        "shiba-inu",
+        "litecoin",
+        "chainlink",
+        "internet-computer",
+        "uniswap",
+        "stellar",
+        "wrapped-bitcoin",
+        "inr",
+      ];
+
+      const coinsForDisplay = [
+        "bitcoin",
+        "ethereum",
+        "solana",
+        "binancecoin",
+        "ripple",
+        "cardano",
+        "dogecoin",
+        "polkadot",
+        "avalanche-2",
+        "chainlink",
+      ];
+
+      async function fetchCryptoPrices() {
+        const response = await fetch(
+          `https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=${coinsForDisplay.join(
+            ","
+          )}&order=market_cap_desc&sparkline=true&price_change_percentage=24h`
+        );
+        const data = await response.json();
+        cryptoContainer.innerHTML = "";
+
+        const gainers = data
+          .filter((c) => c.price_change_percentage_24h > 0)
+          .sort(
+            (a, b) =>
+              b.price_change_percentage_24h - a.price_change_percentage_24h
+          )
+          .slice(0, 5);
+        const losers = data
+          .filter((c) => c.price_change_percentage_24h < 0)
+          .sort(
+            (a, b) =>
+              a.price_change_percentage_24h - b.price_change_percentage_24h
+          )
+          .slice(0, 5);
+
+        document.getElementById("gainers").innerHTML = gainers
+          .map(
+            (g) =>
+              `<li>${g.name}: +${g.price_change_percentage_24h.toFixed(
+                2
+              )}%</li>`
+          )
+          .join("");
+        document.getElementById("losers").innerHTML = losers.length
+          ? losers
+              .map(
+                (l) =>
+                  `<li>${l.name}: ${l.price_change_percentage_24h.toFixed(
+                    2
+                  )}%</li>`
+              )
+              .join("")
+          : `<li class="text-gray-300 italic">No major losers in the past 24h 🎉</li>`;
+
+        data.forEach((coin, index) => {
+          const card = document.createElement("div");
+          card.className =
+            "bg-gray-800 rounded-xl p-4 shadow-md hover:shadow-xl cursor-pointer";
+          card.onclick = () => showModal(coin.id, coin.name);
+
+          card.innerHTML = `
+          <h2 class="text-xl font-semibold mb-2 flex items-center">
+            <img src="${coin.image}" alt="${coin.name}" class="w-6 h-6 mr-2" />
+            ${coin.name} (${coin.symbol.toUpperCase()})
+          </h2>
+          <p class="text-lg mb-1">💵 $${coin.current_price.toLocaleString()}</p>
+          <p class="mb-1">📊 Market Cap: $${coin.market_cap.toLocaleString()}</p>
+          <p class="mb-4">📈 Volume: $${coin.total_volume.toLocaleString()}</p>
+          <canvas id="chart-${index}" height="100"></canvas>
+        `;
+
+          cryptoContainer.appendChild(card);
+
+          new Chart(
+            document.getElementById(`chart-${index}`).getContext("2d"),
+            {
+              type: "line",
+              data: {
+                labels: Array(coin.sparkline_in_7d.price.length).fill(""),
+                datasets: [
+                  {
+                    data: coin.sparkline_in_7d.price,
+                    borderColor: "#3b82f6",
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    backgroundColor: "transparent",
+                  },
+                ],
+              },
+              options: {
+                scales: { x: { display: false }, y: { display: false } },
+                plugins: { legend: { display: false } },
+              },
+            }
+          );
+        });
+      }
+
+      async function showModal(id, name) {
+        document.getElementById(
+          "modal-title"
+        ).textContent = `📈 ${name} - All Time Chart`;
+        document.getElementById("modal").classList.remove("hidden");
+
+        const res = await fetch(
+          `https://api.coingecko.com/api/v3/coins/${id}/market_chart?vs_currency=usd&days=max`
+        );
+        const chartData = await res.json();
+        const prices = chartData.prices.map((p) => ({
+          x: new Date(p[0]),
+          y: p[1],
+        }));
+
+        const ctx = document.getElementById("modal-chart").getContext("2d");
+        if (window.modalChart) window.modalChart.destroy();
+        window.modalChart = new Chart(ctx, {
+          type: "line",
+          data: {
+            datasets: [
+              {
+                label: `${name} Price`,
+                data: prices,
+                borderColor: "#8b5cf6",
+                borderWidth: 2,
+              },
+            ],
+          },
+          options: {
+            scales: {
+              x: {
+                type: "time",
+                time: { unit: "month" },
+                ticks: { color: "#fff" },
+              },
+              y: { ticks: { color: "#fff" } },
+            },
+            plugins: { legend: { labels: { color: "#fff" } } },
+          },
+        });
+      }
+
+      function closeModal() {
+        document.getElementById("modal").classList.add("hidden");
+      }
+
+      function toggleDarkMode() {
+        const body = document.getElementById("body");
+        body.classList.toggle("bg-gray-900");
+        body.classList.toggle("bg-white");
+        body.classList.toggle("text-white");
+        body.classList.toggle("text-black");
+      }
+
+      function filterCoins() {
+        const input = document
+          .getElementById("searchInput")
+          .value.toLowerCase();
+        const cards = document.querySelectorAll("#crypto-container > div");
+        cards.forEach((card) => {
+          const name = card.querySelector("h2").textContent.toLowerCase();
+          card.style.display = name.includes(input) ? "block" : "none";
+        });
+      }
+
+      async function loadConverterOptions() {
+        const fromSelect = document.getElementById("from-coin");
+        const toSelect = document.getElementById("to-coin");
+        converterCoins.forEach((coin) => {
+          const opt = document.createElement("option");
+          opt.value = coin;
+          opt.textContent = coin
+            .replace(/-/g, " ")
+            .replace(/\b\w/g, (c) => c.toUpperCase());
+          fromSelect.appendChild(opt.cloneNode(true));
+          toSelect.appendChild(opt);
+        });
+      }
+
+      async function convertCurrency() {
+        const amount = document.getElementById("amount").value;
+        const from = document.getElementById("from-coin").value;
+        const to = document.getElementById("to-coin").value;
+        if (!amount || !from || !to) return;
+        const res = await fetch(
+          `https://api.coingecko.com/api/v3/simple/price?ids=${from}&vs_currencies=${to}`
+        );
+        const data = await res.json();
+        const rate = data[from][to];
+        document.getElementById(
+          "conversion-result"
+        ).textContent = `${amount} ${from.toUpperCase()} = ${(
+          amount * rate
+        ).toLocaleString()} ${to.toUpperCase()}`;
+      }
+
+      async function loadNews() {
+        const feed = document.getElementById("news-feed");
+        try {
+          const res = await fetch(
+            "https://api.rss2json.com/v1/api.json?rss_url=https://www.coindesk.com/arc/outboundfeeds/rss/"
+          );
+          const data = await res.json();
+          feed.innerHTML = "";
+          data.items.slice(0, 5).forEach((item) => {
+            const li = document.createElement("li");
+            li.innerHTML = `<a href="${item.link}" target="_blank" class="hover:underline">${item.title}</a>`;
+            li.classList.add("fade-in");
+            feed.appendChild(li);
+          });
+        } catch (e) {
+          feed.innerHTML = '<li class="text-red-400">Failed to load news.</li>';
+        }
+      }
+
+      loadConverterOptions();
+      fetchCryptoPrices();
+      setInterval(fetchCryptoPrices, 30000);
+      loadNews();
+      setInterval(loadNews, 120000);
+    </script>
+  </body>
+</html>
